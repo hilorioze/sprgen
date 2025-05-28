@@ -1,0 +1,34 @@
+name: Build
+
+on: [push, pull_request]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprgen-linux
+          path: |
+            sprgen
+            sprinfo
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with MinGW
+        run: |
+          gcc -Wall -O2 -std=c99 -o sprgen.exe sprgen.c -lm
+          gcc -Wall -O2 -std=c99 -o sprinfo.exe sprinfo.c
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprgen-windows
+          path: |
+            sprgen.exe
+            sprinfo.exe
