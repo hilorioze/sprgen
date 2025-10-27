@@ -6,11 +6,13 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
       - name: Build
         run: make
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: sprgen-linux
           path: |
@@ -19,14 +21,27 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Build with MinGW
-        run: |
-          gcc -Wall -O2 -std=c99 -o sprgen.exe sprgen.c -lm
-          gcc -Wall -O2 -std=c99 -o sprinfo.exe sprinfo.c
+      - uses: actions/checkout@v5
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            make
+
+      - name: Build
+        run: make
+
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: sprgen-windows
           path: |

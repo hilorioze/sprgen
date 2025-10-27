@@ -90,6 +90,8 @@ static int byteimagewidth, byteimageheight;
 static byte *lumpbuffer, *plump;
 static char *spritedir;
 static char *spriteoutname;
+static char *cli_output_name;
+static bool cli_output_consumed;
 static int framesmaxs[2];
 static int framecount;
 static spritepackage_t *frames;
@@ -161,6 +163,20 @@ static void safe_write(FILE *f, void *buffer, int count)
     {
         error("File write failure");
     }
+}
+
+static bool is_absolute_path(const char *path)
+{
+    if (!path || !path[0])
+        return false;
+
+    if (path[0] == '/' || path[0] == '\\')
+        return true;
+
+    if (strlen(path) >= 2 && path[1] == ':' && isalpha((unsigned char)path[0]))
+        return true;
+
+    return false;
 }
 
 static void ensure_token_capacity(size_t needed)
@@ -358,14 +374,26 @@ static void ensure_frame_capacity(void)
 
 static void load_bmp(const char *filename)
 {
-    FILE *f = safe_open_read(filename);
+    const char *path_to_open = filename;
+    char *fullpath = NULL;
+
+    if (!is_absolute_path(filename))
+    {
+        size_t needed = strlen(spritedir) + strlen(filename) + 1;
+        fullpath = safe_malloc(needed);
+        strcpy(fullpath, spritedir);
+        strcat(fullpath, filename);
+        path_to_open = fullpath;
+    }
+
+    FILE *f = safe_open_read(path_to_open);
 
     byte header[54];
     safe_read(f, header, 54);
 
     if (header[0] != 'B' || header[1] != 'M')
     {
-        error("%s is not a valid BMP file", filename);
+        error("%s is not a valid BMP file", path_to_open);
     }
 
     int width = *(int *)(header + 18);
@@ -376,7 +404,7 @@ static void load_bmp(const char *filename)
 
     if (width <= 0 || height <= 0)
     {
-        error("Invalid dimensions in %s", filename);
+        error("Invalid dimensions in %s", path_to_open);
     }
 
     byteimagewidth = width;
@@ -587,6 +615,9 @@ static void load_bmp(const char *filename)
 
     free(row_buffer);
     fclose(f);
+
+    if (fullpath)
+        free(fullpath);
 }
 
 static void grab_frame(void)
@@ -684,6 +715,9 @@ static void finish_sprite(void)
                                  ((framesmaxs[1] >> 1) * (framesmaxs[1] >> 1)));
     sprite.width = framesmaxs[0];
     sprite.height = framesmaxs[1];
+
+    if (!spriteoutname)
+        error("No output file specified. Use $spritename in the script or provide -o/--output");
 
     spriteouthandle = safe_open_write(spriteoutname);
 
@@ -786,8 +820,19 @@ static void parse_script(void)
             get_token(false);
             if (spriteoutname)
                 free(spriteoutname);
-            spriteoutname = safe_malloc(strlen(spritedir) + strlen(token) + 16);
-            sprintf(spriteoutname, "%s%s.spr", spritedir, token);
+            if (cli_output_name)
+            {
+                if (cli_output_consumed)
+                    error("Multiple $spritename entries are not supported when an output file is specified");
+                spriteoutname = safe_malloc(strlen(cli_output_name) + 1);
+                strcpy(spriteoutname, cli_output_name);
+                cli_output_consumed = true;
+            }
+            else
+            {
+                spriteoutname = safe_malloc(strlen(spritedir) + strlen(token) + 16);
+                sprintf(spriteoutname, "%s%s.spr", spritedir, token);
+            }
 
             memset(&sprite, 0, sizeof(sprite));
             framecount = 0;
@@ -905,12 +950,23 @@ int main(int argc, char **argv)
         {
             do16bit = false;
         }
+        else if (!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output"))
+        {
+            if (i + 1 >= argc)
+                error("Option %s requires a value", argv[i]);
+            i++;
+            if (cli_output_name)
+                free(cli_output_name);
+            cli_output_name = safe_malloc(strlen(argv[i]) + 1);
+            strcpy(cli_output_name, argv[i]);
+        }
         else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-help"))
         {
             printf("Usage: %s [options] file.qc\n", argv[0]);
             printf("Options:\n");
             printf("  -16bit          Enable 16-bit mode (default)\n");
             printf("  -no16bit        Disable 16-bit mode\n");
+            printf("  -o, --output    Override output sprite file path\n");
             printf("  --help          Show this help\n");
             return 0;
         }
@@ -935,15 +991,17 @@ int main(int argc, char **argv)
 
     spritedir = safe_malloc(MAX_PATH_SIZE);
     strcpy(spritedir, filename);
-    for (i = strlen(spritedir) - 1; i >= 0; i--)
+    int slash_index = -1;
+    for (int j = (int)strlen(spritedir) - 1; j >= 0; j--)
     {
-        if (spritedir[i] == '/' || spritedir[i] == '\\')
+        if (spritedir[j] == '/' || spritedir[j] == '\\')
         {
-            spritedir[i + 1] = 0;
+            spritedir[j + 1] = 0;
+            slash_index = j;
             break;
         }
     }
-    if (i < 0)
+    if (slash_index < 0)
         strcpy(spritedir, "./");
 
     sprite.synctype = ST_RAND;
@@ -966,6 +1024,8 @@ int main(int argc, char **argv)
     free(lbmpalette);
     free(original_palette);
     free(token);
+    if (cli_output_name)
+        free(cli_output_name);
 
     return 0;
 }
